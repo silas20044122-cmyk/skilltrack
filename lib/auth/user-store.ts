@@ -18,21 +18,6 @@ export function resolvePrimaryRole(roles: RoleCode[]): RoleCode {
   return [...roles].sort((a, b) => ROLE_PRIORITY[b] - ROLE_PRIORITY[a])[0];
 }
 
-export function getDefaultLandingPath(role: RoleCode): string {
-  switch (role) {
-    case 'ADMIN':
-      return '/admin';
-    case 'ILO':
-      return '/ilo';
-    case 'MENTOR':
-      return '/mentor';
-    case 'TRAINEE':
-      return '/trainee';
-    default:
-      return '/login';
-  }
-}
-
 /**
  * Development Seed User Record Definition
  */
@@ -104,6 +89,33 @@ export const SEED_USERS: SeedUserRecord[] = [
     status: 'INACTIVE',
     roles: ['TRAINEE'],
   },
+  {
+    id: 'usr_mentor_002',
+    email: 'mentor2@workplace.co.ke',
+    name: 'Eng. Beatrice Achieng (Workplace Mentor)',
+    passwordPlain: 'Mentor2Pass123!',
+    passwordHash: '',
+    status: 'ACTIVE',
+    roles: ['MENTOR'],
+  },
+  {
+    id: 'usr_trainee_002',
+    email: 'trainee2@polytechnic.ac.ke',
+    name: 'Brian Otieno (TVET Trainee)',
+    passwordPlain: 'Trainee2Pass123!',
+    passwordHash: '',
+    status: 'ACTIVE',
+    roles: ['TRAINEE'],
+  },
+  {
+    id: 'usr_trainee_003',
+    email: 'trainee3@polytechnic.ac.ke',
+    name: 'Mercy Chebet (TVET Trainee)',
+    passwordPlain: 'Trainee3Pass123!',
+    passwordHash: '',
+    status: 'ACTIVE',
+    roles: ['TRAINEE'],
+  },
 ];
 
 let seedHashesInitialized = false;
@@ -161,6 +173,13 @@ export async function getUserByEmail(
     }
   }
 
+  // Development/testing only: fall back to the seeded in-memory registry when
+  // the database is unreachable. In production, fail closed (no login) so that
+  // plaintext development credentials can never authenticate real users.
+  if (process.env.NODE_ENV === 'production') {
+    return null;
+  }
+
   // Fallback to Development Seed Store
   const seed = SEED_USERS.find((u) => u.email.toLowerCase() === email);
   if (!seed) return null;
@@ -192,14 +211,18 @@ export async function authenticateCredentials(
     return { error: 'INVALID_CREDENTIALS' };
   }
 
-  // Account status check: Inactive accounts are prohibited from authenticating
-  if (record.user.status === 'INACTIVE') {
-    return { error: 'ACCOUNT_INACTIVE' };
-  }
-
+  // Verify the password BEFORE revealing account status, so an attacker
+  // cannot probe which emails belong to deactivated accounts.
   const isValid = await verifyPassword(plainPassword, record.passwordHash);
   if (!isValid) {
     return { error: 'INVALID_CREDENTIALS' };
+  }
+
+  // Account status check: Inactive accounts are prohibited from authenticating.
+  // Only reached when the password is correct, so this never leaks account
+  // existence to unauthenticated callers.
+  if (record.user.status === 'INACTIVE') {
+    return { error: 'ACCOUNT_INACTIVE' };
   }
 
   return { user: record.user };

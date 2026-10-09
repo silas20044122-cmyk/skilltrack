@@ -1,5 +1,5 @@
-/**
- * SkillTrack — Authentication & RBAC Comprehensive Test Suite
+﻿/**
+ * SkillTrack â€” Authentication & RBAC Comprehensive Test Suite
  * Validates Sprint 2 requirements per engineering specification.
  */
 
@@ -9,6 +9,7 @@ import {
   canAccessTraineeRecord,
   getDefaultLandingPath,
 } from '../lib/permissions/rbac';
+import { authConfig } from '../auth.config';
 import type { SessionUser } from '../types/auth';
 
 let passedTests = 0;
@@ -18,9 +19,9 @@ function assert(condition: boolean, testName: string, failureDetails?: string) {
   totalTests++;
   if (condition) {
     passedTests++;
-    console.log(`  ✓ PASS: ${testName}`);
+    console.log(`  âœ“ PASS: ${testName}`);
   } else {
-    console.error(`  ✗ FAIL: ${testName}`);
+    console.error(`  âœ— FAIL: ${testName}`);
     if (failureDetails) {
       console.error(`    Details: ${failureDetails}`);
     }
@@ -30,7 +31,7 @@ function assert(condition: boolean, testName: string, failureDetails?: string) {
 
 async function runTestSuite() {
   console.log('\n======================================================');
-  console.log('SkillTrack Sprint 2 — Authentication & RBAC Test Suite');
+  console.log('SkillTrack Sprint 2 â€” Authentication & RBAC Test Suite');
   console.log('======================================================\n');
 
   // ---------------------------------------------------------------------------
@@ -86,6 +87,26 @@ async function runTestSuite() {
   assert(
     inactiveAuth.user === undefined && inactiveAuth.error === 'ACCOUNT_INACTIVE',
     'Inactive user authentication is strictly blocked with ACCOUNT_INACTIVE error'
+  );
+
+  // Account enumeration: wrong password on an INACTIVE account must NOT
+  // reveal that the account exists (must be indistinguishable from a
+  // wrong password on an unknown account).
+  const inactiveBadPass = await authenticateCredentials(
+    'inactive@polytechnic.ac.ke',
+    'WrongPassword999!'
+  );
+  assert(
+    inactiveBadPass.user === undefined && inactiveBadPass.error === 'INVALID_CREDENTIALS',
+    'Inactive account with wrong password returns generic INVALID_CREDENTIALS (no status leak)',
+    JSON.stringify(inactiveBadPass)
+  );
+
+  // Timing-independent ordering sanity: unknown email + inactive email with
+  // wrong password produce the identical error code.
+  assert(
+    inactiveBadPass.error === badEmailAuth.error,
+    'Enumeration prevention: unknown email and inactive-account failures return identical errors'
   );
 
   // ---------------------------------------------------------------------------
@@ -300,6 +321,71 @@ async function runTestSuite() {
   );
 
   // ---------------------------------------------------------------------------
+  // SECTION 5: SESSION DESIGN (Auth.js JWT/session callbacks)
+  // ---------------------------------------------------------------------------
+  console.log('\n--- 5. Session Design & Data Exposure ---');
+
+  const jwtFn = authConfig.callbacks?.jwt;
+  const sessionFn = authConfig.callbacks?.session;
+
+  assert(
+    typeof jwtFn === 'function' && typeof sessionFn === 'function',
+    'Auth.js jwt and session callbacks are configured'
+  );
+
+  if (jwtFn && sessionFn) {
+    const token = await jwtFn({
+      token: { name: 'Faith Wanjiku', email: 'trainee@polytechnic.ac.ke' },
+      user: {
+        id: 'usr_trainee_001',
+        email: 'trainee@polytechnic.ac.ke',
+        name: 'Faith Wanjiku',
+        roles: ['TRAINEE'],
+        primaryRole: 'TRAINEE',
+        status: 'ACTIVE',
+        // Simulated sensitive fields that must never survive into the session
+        passwordHash: 'pbkdf2$DO-NOT-LEAK',
+        password: 'DO-NOT-LEAK',
+      },
+    } as never);
+
+    assert(
+      token &&
+        (token as any).id === 'usr_trainee_001' &&
+        Array.isArray((token as any).roles) &&
+        (token as any).roles.includes('TRAINEE') &&
+        (token as any).primaryRole === 'TRAINEE' &&
+        (token as any).status === 'ACTIVE',
+      'jwt callback copies identity, roles, primaryRole and status onto the token'
+    );
+
+    const session = await sessionFn({
+      session: {
+        user: { name: '', email: '', image: null },
+        expires: new Date(Date.now() + 60_000).toISOString(),
+      },
+      token: token as never,
+    } as never);
+
+    const sessionUser = (session as { user?: Record<string, unknown> }).user ?? {};
+    assert(
+      sessionUser.id === 'usr_trainee_001' &&
+        (sessionUser.roles as string[]).includes('TRAINEE') &&
+        sessionUser.primaryRole === 'TRAINEE' &&
+        sessionUser.status === 'ACTIVE',
+      'session callback exposes id, roles, primaryRole and status to the application'
+    );
+
+    assert(
+      sessionUser.passwordHash === undefined &&
+        sessionUser.password === undefined &&
+        JSON.stringify(session).indexOf('DO-NOT-LEAK') === -1 &&
+        JSON.stringify(session).toLowerCase().indexOf('password') === -1,
+      'session payload never contains passwords or password hashes'
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // SUMMARY
   // ---------------------------------------------------------------------------
   console.log('\n======================================================');
@@ -315,3 +401,7 @@ runTestSuite().catch((err) => {
   console.error('Fatal test error:', err);
   process.exit(1);
 });
+
+
+
+

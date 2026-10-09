@@ -9,7 +9,7 @@ export const siteConfig = {
   description:
     "A unified platform for managing TVET trainee industrial attachments, structured workplace mentoring, competency assessments, and institutional oversight.",
   version: "0.1.0",
-  sprint: "Sprint 1 — Foundation",
+  sprint: "Sprint 4 — Curriculum Units, Document Intelligence & Mentoring Templates",
   author: "SkillTrack Engineering Team",
   institutionTypes: [
     "National Polytechnic",
@@ -17,12 +17,15 @@ export const siteConfig = {
     "Vocational Training Center",
     "Technical College",
   ] as const,
+  /**
+   * MVP authorization role codes. These are stable identifiers used by the
+   * RBAC layer (see lib/permissions/rbac.ts) — never display labels.
+   */
   userRoles: {
-    SUPER_ADMIN: "SUPER_ADMIN",
-    INSTITUTION_ADMIN: "INSTITUTION_ADMIN",
-    ILO: "ILO", // Industry Liaison Officer
+    ADMIN: "ADMIN",
     MENTOR: "MENTOR", // Workplace / Industry Mentor
     TRAINEE: "TRAINEE", // TVET Student / Attachee
+    ILO: "ILO", // Industry Liaison Officer
   } as const,
 };
 

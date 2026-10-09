@@ -1,9 +1,15 @@
+import NextAuth from 'next-auth';
 import { NextResponse } from 'next/server';
-import { auth } from '@/auth';
+import { authConfig } from '@/auth.config';
 import { canAccessRoute, getDefaultLandingPath } from '@/lib/permissions/rbac';
 import type { SessionUser } from '@/types/auth';
 
-export default auth((req) => {
+// Edge-safe Auth.js instance: middleware must never import the Node-only
+// provider chain in `@/auth` (Prisma, bcryptjs). Session JWTs are decoded
+// and the shared callbacks in `auth.config.ts` populate `req.auth`.
+const { auth: middleware } = NextAuth(authConfig);
+
+export default middleware((req) => {
   const { nextUrl } = req;
   const sessionUser = req.auth?.user as unknown as SessionUser | undefined;
   const pathname = nextUrl.pathname;

@@ -6,6 +6,13 @@ const nextConfig: NextConfig = {
     root: process.cwd(),
   },
   allowedDevOrigins: ['192.168.56.1'],
+  experimental: {
+    // Source mentoring-tool PDFs are uploaded through a Server Action.
+    // Allow headroom above the 25 MB application limit for multipart overhead.
+    serverActions: {
+      bodySizeLimit: '26mb',
+    },
+  },
   typescript: {
     ignoreBuildErrors: false,
   },

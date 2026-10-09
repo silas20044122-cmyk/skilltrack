@@ -1,3 +1,8 @@
 # Auth Route Group: app/(auth)
-Houses sign-in, account invitation verification, password resets, and role onboarding routes.
-(To be implemented during Authentication Sprint).
+
+Reserved route group for authentication-related pages.
+
+**Sprint 2 status:** the shared login page is implemented at `app/login`
+(not inside this group). There is deliberately **no public registration,
+signup, or invitation route yet** — accounts are provisioned by administrators
+in a later sprint. Future password-reset/invitation flows may live here.

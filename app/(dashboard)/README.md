@@ -1,3 +1,8 @@
 # Dashboard Route Group: app/(dashboard)
-Houses unified role-gated dashboard views for Institution Admins, Industry Liaison Officers (ILOs), Workplace Mentors, and Trainees within the modular monolith.
-(To be implemented during subsequent feature sprints).
+
+Reserved route group for unified role-gated dashboards.
+
+**Sprint 2 status:** minimal, server-protected role landing pages already exist
+as real routes — `/admin`, `/mentor`, `/trainee`, `/ilo` and `/dashboard`
+(which redirects to the user's primary-role landing). Each is enforced by
+`requireRole`/`requireAuth`. Full business dashboards belong to later sprints.

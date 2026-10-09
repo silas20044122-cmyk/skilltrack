@@ -1,7 +1,18 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth/session";
+import { hasAnyRole } from "@/lib/permissions/rbac";
 
 export async function POST(req: NextRequest) {
+  // Server-side authorization: never rely on the client hiding this call.
+  const user = await getCurrentUser();
+  if (!hasAnyRole(user, ["TRAINEE", "MENTOR", "ADMIN"])) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: user ? 403 : 401 }
+    );
+  }
+
   try {
     const { activityTitle, activityDescription, toolsUsed, trade } = await req.json();
 

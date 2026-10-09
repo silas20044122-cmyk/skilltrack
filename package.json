@@ -9,14 +9,22 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "db:seed": "tsx prisma/seed.ts",
-    "test:auth": "NODE_ENV=test tsx scripts/test-auth-rbac.ts",
+    "test:auth": "tsx scripts/test-auth-rbac.ts",
+    "test:auth:server": "tsx scripts/test-auth-http.ts",
+    "test:admin": "tsx scripts/test-admin.ts",
+    "test:sprint4": "tsx scripts/test-sprint4.ts",
+    "test:sprint4:db": "tsx scripts/test-sprint4-db.ts",
+    "test:sprint4:e2e": "tsx scripts/test-sprint4-e2e.ts",
+    "test": "npm run test:auth && npm run test:auth:server && npm run test:admin && npm run test:sprint4 && npm run test:sprint4:db",
     "clean": "next clean"
   },
   "dependencies": {
+    "@auth/core": "^0.41.3",
     "@base-ui/react": "^1.8.0",
     "@google/genai": "^2.4.0",
     "@hookform/resolvers": "^5.2.1",
     "@prisma/client": "^6.19.3",
+    "@supabase/supabase-js": "^2.117.3",
     "autoprefixer": "^10.4.21",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
@@ -30,7 +38,8 @@
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "shadcn": "^1.0.0",
-    "tailwind-merge": "^3.3.1"
+    "tailwind-merge": "^3.3.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.1.11",
@@ -40,7 +49,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "9.39.1",
-    "eslint-config-next": "^14.2.35",
+    "eslint-config-next": "^16.4.0",
     "firebase-tools": "^14.23.0",
     "prisma": "^6.12.0",
     "tailwindcss": "4.1.11",

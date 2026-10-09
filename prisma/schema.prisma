@@ -8,6 +8,10 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
 enum AccountStatus {
   ACTIVE
   INACTIVE
@@ -20,6 +24,151 @@ enum RoleType {
   ILO
 }
 
+// Generic lifecycle status for institutional entities.
+enum EntityStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// Lifecycle status for a mentor-trainee assignment.
+enum AssignmentStatus {
+  ACTIVE
+  ENDED
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 4 — Document intelligence & mentoring template enums
+// ---------------------------------------------------------------------------
+
+// Lifecycle of an uploaded mentoring-tool source document.
+enum SourceDocumentStatus {
+  UPLOADED
+  PROCESSING
+  EXTRACTED
+  REVIEW_REQUIRED
+  VALIDATED
+  FAILED
+  ARCHIVED
+}
+
+// Lifecycle of a single Gemini extraction attempt.
+enum ExtractionRunStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// Lifecycle of a mentoring template version. Publishing happens in Sprint 5.
+enum TemplateVersionStatus {
+  EXTRACTION_DRAFT
+  VALIDATED
+  PUBLISHED
+  ARCHIVED
+}
+
+// Category of a single evaluation item. Extensible: OTHER covers documents that
+// use categories outside the common TVET set.
+enum EvaluationCategory {
+  KNOWLEDGE
+  SKILL
+  ATTITUDE
+  OTHER
+}
+
+// Whether a mentoring section has been mapped to a curriculum unit.
+enum MappingStatus {
+  UNMAPPED
+  MAPPED
+  NOT_APPLICABLE
+}
+
+// Shape of a competency rule. COMPOSITE covers multi-condition rules.
+enum CompetencyRuleType {
+  MINIMUM_COUNT
+  MINIMUM_PERCENTAGE
+  REQUIRED_ITEMS
+  COMPOSITE
+  OTHER
+}
+
+// ---------------------------------------------------------------------------
+// Institution hierarchy: Institution -> Department -> Programme -> Trainee
+// ---------------------------------------------------------------------------
+
+model Institution {
+  id          String       @id @default(uuid())
+  name        String
+  code        String       @unique
+  description String?
+  email       String?
+  phone       String?
+  address     String?
+  status      EntityStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  departments Department[]
+  programmes  Programme[]
+  iloProfiles IloProfile[]
+
+  @@index([status])
+  @@map("institutions")
+}
+
+model Department {
+  id            String       @id @default(uuid())
+  institutionId String
+  name          String
+  code          String
+  description   String?
+  status        EntityStatus @default(ACTIVE)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Restrict)
+  programmes  Programme[]
+
+  // Department codes are unique within an institution.
+  @@unique([institutionId, code])
+  @@index([institutionId])
+  @@map("departments")
+}
+
+model Programme {
+  id            String       @id @default(uuid())
+  institutionId String
+  departmentId  String
+  name          String
+  code          String
+  level         String?
+  description   String?
+  status        EntityStatus @default(ACTIVE)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  institution Institution      @relation(fields: [institutionId], references: [id], onDelete: Restrict)
+  department  Department       @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  trainees    TraineeProfile[]
+
+  // Sprint 4 — document intelligence
+  curriculumUnits    CurriculumUnit[]
+  sourceDocuments    SourceDocument[]
+  mentoringTemplates MentoringTemplate[]
+
+  // Programme codes are unique within an institution. `institutionId` is
+  // denormalized from Department to enforce institution-wide uniqueness.
+  // The application layer keeps it consistent with the department.
+  @@unique([institutionId, code])
+  @@index([departmentId])
+  @@index([institutionId])
+  @@map("programmes")
+}
+
+// ---------------------------------------------------------------------------
+// User identity, roles and role-specific profiles
+// ---------------------------------------------------------------------------
+
 model User {
   id           String        @id @default(uuid())
   email        String        @unique
@@ -29,25 +178,34 @@ model User {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  userRoles    UserRole[]
+  userRoles UserRole[]
 
   // Domain profiles separated from user identity
   traineeProfile TraineeProfile?
   mentorProfile  MentorProfile?
   iloProfile     IloProfile?
 
+  // Mentor-trainee assignment relationships
+  mentorAssignments  MentorAssignment[] @relation("MentorAssignments")
+  traineeAssignments MentorAssignment[] @relation("TraineeAssignments")
+  assignmentsCreated MentorAssignment[] @relation("AssignmentsCreated")
+
+  // Sprint 4 — document intelligence
+  sourceDocumentsUploaded   SourceDocument[]           @relation("SourceDocumentsUploaded")
+  templateVersionsValidated MentoringTemplateVersion[] @relation("TemplateVersionsValidated")
+
   @@map("users")
 }
 
 model Role {
-  id          String     @id @default(uuid())
-  code        RoleType   @unique
+  id          String   @id @default(uuid())
+  code        RoleType @unique
   name        String
   description String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  userRoles   UserRole[]
+  userRoles UserRole[]
 
   @@map("roles")
 }
@@ -68,25 +226,29 @@ model UserRole {
 }
 
 model TraineeProfile {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  studentId String?  @unique
-  programme String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  registrationNumber String?  @unique
+  programmeId        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  programme Programme? @relation(fields: [programmeId], references: [id], onDelete: SetNull)
 
+  @@index([programmeId])
   @@map("trainee_profiles")
 }
 
 model MentorProfile {
-  id          String   @id @default(uuid())
-  userId      String   @unique
-  companyName String?
-  jobTitle    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  companyName  String?
+  jobTitle     String?
+  contactEmail String?
+  phone        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -94,14 +256,283 @@ model MentorProfile {
 }
 
 model IloProfile {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  institutionId String?
+  designation   String?
+  officeEmail   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  institution Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+
+  @@index([institutionId])
+  @@map("ilo_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Mentor -> Trainee assignment (first-class relationship)
+// ---------------------------------------------------------------------------
+
+model MentorAssignment {
+  id           String           @id @default(uuid())
+  mentorId     String
+  traineeId    String
+  assignedById String?
+  status       AssignmentStatus @default(ACTIVE)
+  startDate    DateTime         @default(now())
+  endDate      DateTime?
+  notes        String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  mentor     User  @relation("MentorAssignments", fields: [mentorId], references: [id], onDelete: Restrict)
+  trainee    User  @relation("TraineeAssignments", fields: [traineeId], references: [id], onDelete: Restrict)
+  assignedBy User? @relation("AssignmentsCreated", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  // A trainee may have more than one mentor. The service layer prevents
+  // duplicate ACTIVE pairs without a partial index (which Prisma cannot
+  // represent without migration drift).
+  @@index([mentorId])
+  @@index([traineeId])
+  @@index([status])
+  @@map("mentor_assignments")
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 4 — Curriculum units
+//
+// A curriculum unit is NOT a mentoring section. It is the institutional/
+// programme syllabus structure. Extracted mentoring sections are optionally
+// mapped to one or more curriculum units (many-to-many) during review.
+// ---------------------------------------------------------------------------
+
+model CurriculumUnit {
+  id          String       @id @default(uuid())
+  programmeId String
+  code        String
+  name        String
+  description String?
+  position    Int          @default(0)
+  status      EntityStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  programme    Programme                       @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  sectionLinks TemplateSectionCurriculumUnit[]
+
+  // Unit codes are unique within a programme.
+  @@unique([programmeId, code])
+  @@index([programmeId])
+  @@map("curriculum_units")
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 4 — Source documents (uploaded mentoring-tool PDFs)
+//
+// The PDF binary is stored in Supabase Storage; only the storage reference is
+// kept here. `fileHash` supports duplicate detection and traceability.
+// ---------------------------------------------------------------------------
+
+model SourceDocument {
+  id           String               @id @default(uuid())
+  programmeId  String
+  fileName     String
+  storageKey   String               @unique
+  fileHash     String?
+  mimeType     String
+  fileSize     Int
+  uploadedById String?
+  status       SourceDocumentStatus @default(UPLOADED)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  programme        Programme                  @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  uploadedBy       User?                      @relation("SourceDocumentsUploaded", fields: [uploadedById], references: [id], onDelete: SetNull)
+  extractionRuns   ExtractionRun[]
+  templateVersions MentoringTemplateVersion[]
+
+  @@index([programmeId])
+  @@index([status])
+  @@map("source_documents")
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 4 — Extraction runs (append-only attempt history)
+//
+// Every Gemini extraction attempt is recorded. Previous attempts are never
+// overwritten: the raw response and validated structured output are preserved
+// for traceability from source PDF to validated template data.
+// ---------------------------------------------------------------------------
+
+model ExtractionRun {
+  id               String              @id @default(uuid())
+  sourceDocumentId String
+  provider         String              @default("google")
+  model            String
+  promptVersion    String
+  status           ExtractionRunStatus @default(PENDING)
+  rawResponse      String?
+  structuredOutput Json?
+  errorMessage     String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime            @default(now())
+
+  sourceDocument   SourceDocument             @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  templateVersions MentoringTemplateVersion[]
+
+  @@index([sourceDocumentId])
+  @@index([status])
+  @@map("extraction_runs")
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 4 — Mentoring templates, versions, sections, items and rules
+//
+// A template belongs to a programme. Each extraction produces a new version
+// (never overwrite a published definition). Sections support an arbitrary
+// hierarchy via `parentSectionId`.
+// ---------------------------------------------------------------------------
+
+model MentoringTemplate {
   id          String   @id @default(uuid())
-  userId      String   @unique
-  institution String?
-  officeEmail String?
+  programmeId String
+  title       String
+  description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  programme Programme                  @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  versions  MentoringTemplateVersion[]
 
-  @@map("ilo_profiles")
+  @@index([programmeId])
+  @@map("mentoring_templates")
+}
+
+model MentoringTemplateVersion {
+  id               String                @id @default(uuid())
+  templateId       String
+  versionNumber    Int
+  status           TemplateVersionStatus @default(EXTRACTION_DRAFT)
+  sourceDocumentId String?
+  extractionRunId  String?
+  title            String?
+  notes            String?
+  validatedById    String?
+  validatedAt      DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  template        MentoringTemplate        @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  sourceDocument  SourceDocument?          @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  extractionRun   ExtractionRun?           @relation(fields: [extractionRunId], references: [id], onDelete: SetNull)
+  validatedBy     User?                    @relation("TemplateVersionsValidated", fields: [validatedById], references: [id], onDelete: SetNull)
+  sections        TemplateSection[]
+  competencyRules CompetencyRule[]
+  warnings        TemplateVersionWarning[]
+
+  @@unique([templateId, versionNumber])
+  @@index([templateId])
+  @@index([status])
+  @@map("mentoring_template_versions")
+}
+
+model TemplateSection {
+  id              String        @id @default(uuid())
+  versionId       String
+  parentSectionId String?
+  sectionNumber   String?
+  title           String
+  description     String?
+  sectionType     String?
+  displayOrder    Int           @default(0)
+  mappingStatus   MappingStatus @default(UNMAPPED)
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  version             MentoringTemplateVersion        @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  parent              TemplateSection?                @relation("SectionHierarchy", fields: [parentSectionId], references: [id], onDelete: SetNull)
+  children            TemplateSection[]               @relation("SectionHierarchy")
+  evaluationItems     EvaluationItem[]
+  competencyRules     CompetencyRule[]
+  curriculumUnitLinks TemplateSectionCurriculumUnit[]
+
+  @@index([versionId])
+  @@index([parentSectionId])
+  @@map("template_sections")
+}
+
+model EvaluationItem {
+  id             String             @id @default(uuid())
+  sectionId      String
+  itemNumber     String?
+  description    String
+  sourceWording  String?
+  category       EvaluationCategory @default(OTHER)
+  displayOrder   Int                @default(0)
+  sourceLocation String?
+  notes          String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  section TemplateSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@index([sectionId])
+  @@map("evaluation_items")
+}
+
+model CompetencyRule {
+  id                  String             @id @default(uuid())
+  versionId           String
+  sectionId           String?
+  ruleType            CompetencyRuleType
+  minimumCorrect      Int?
+  minimumPercentage   Int?
+  requiredItemNumbers Json?
+  conditions          Json?
+  sourceWording       String
+  notes               String?
+  displayOrder        Int                @default(0)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  version MentoringTemplateVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  section TemplateSection?         @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+  @@index([sectionId])
+  @@map("competency_rules")
+}
+
+model TemplateSectionCurriculumUnit {
+  id               String   @id @default(uuid())
+  sectionId        String
+  curriculumUnitId String
+  createdAt        DateTime @default(now())
+
+  section        TemplateSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  curriculumUnit CurriculumUnit  @relation(fields: [curriculumUnitId], references: [id], onDelete: Cascade)
+
+  @@unique([sectionId, curriculumUnitId])
+  @@index([sectionId])
+  @@index([curriculumUnitId])
+  @@map("template_section_curriculum_units")
+}
+
+model TemplateVersionWarning {
+  id              String   @id @default(uuid())
+  versionId       String
+  type            String
+  message         String
+  sourceReference String?
+  severity        String?
+  createdAt       DateTime @default(now())
+
+  version MentoringTemplateVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+  @@map("template_version_warnings")
 }
