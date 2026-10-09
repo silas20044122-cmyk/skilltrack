@@ -1,0 +1,30 @@
+# Local development database.
+#
+#   docker compose up -d        # start Postgres on localhost:5432
+#   docker compose down         # stop (keeps data)
+#   docker compose down -v      # stop and wipe data
+#
+# Then point DATABASE_URL / DIRECT_URL at it (see .env.example):
+#   postgresql://skilltrack:skilltrack@localhost:5432/skilltrack
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: skilltrack-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: skilltrack
+      POSTGRES_PASSWORD: skilltrack
+      POSTGRES_DB: skilltrack
+    ports:
+      - "5432:5432"
+    volumes:
+      - skilltrack-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skilltrack -d skilltrack"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  skilltrack-postgres-data:

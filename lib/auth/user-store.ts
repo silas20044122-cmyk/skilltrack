@@ -137,7 +137,6 @@ export async function getUserByEmail(
   rawEmail: string
 ): Promise<{ user: AuthenticatedUser; passwordHash: string } | null> {
   const email = rawEmail.trim().toLowerCase();
-  await ensureSeedHashes();
 
   try {
     const dbUser = await prisma.user.findUnique({
@@ -180,7 +179,9 @@ export async function getUserByEmail(
     return null;
   }
 
-  // Fallback to Development Seed Store
+  // Fallback to Development Seed Store. The (expensive) bcrypt hashing of the
+  // seed credentials is only ever performed here, never on the production path.
+  await ensureSeedHashes();
   const seed = SEED_USERS.find((u) => u.email.toLowerCase() === email);
   if (!seed) return null;
 

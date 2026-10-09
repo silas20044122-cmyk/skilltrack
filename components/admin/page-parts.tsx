@@ -81,9 +81,10 @@ export function DocumentStatusBadge({ status }: { status: string }) {
 
 export function TemplateStatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    EXTRACTION_DRAFT:
-      'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
-    VALIDATED: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+    DRAFT: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
+    IN_REVIEW: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-400',
+    READY_FOR_PUBLISH:
+      'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
     PUBLISHED: 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400',
     ARCHIVED: 'border-border bg-muted text-muted-foreground',
   };

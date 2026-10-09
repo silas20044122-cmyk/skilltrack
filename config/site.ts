@@ -9,7 +9,7 @@ export const siteConfig = {
   description:
     "A unified platform for managing TVET trainee industrial attachments, structured workplace mentoring, competency assessments, and institutional oversight.",
   version: "0.1.0",
-  sprint: "Sprint 4 — Curriculum Units, Document Intelligence & Mentoring Templates",
+  sprint: "Sprint 5 — Mentoring Template Engine, Validation, Publishing & Version Management",
   author: "SkillTrack Engineering Team",
   institutionTypes: [
     "National Polytechnic",

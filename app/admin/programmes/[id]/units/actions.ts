@@ -1,12 +1,13 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { getAdminUser } from '@/lib/auth/guards';
 import { actionFailure, actionSuccess, type ActionResult } from '@/lib/actions/result';
 import { toActionFailure } from '@/lib/errors';
 import { fdString, parseWithSchema } from '@/lib/validation/parse';
 import { curriculumUnitSchema, curriculumUnitUpdateSchema, statusEnum } from '@/lib/validation/schemas';
 import {
+  CURRICULUM_UNITS_TAG,
   createCurriculumUnit,
   setCurriculumUnitStatus,
   updateCurriculumUnit,
@@ -35,6 +36,7 @@ export async function createCurriculumUnitAction(
   try {
     await createCurriculumUnit(parsed.data, actor.id);
     revalidatePath(`/admin/programmes/${parsed.data.programmeId}/units`);
+    revalidateTag(CURRICULUM_UNITS_TAG, 'max');
     return actionSuccess(undefined, 'Curriculum unit added.');
   } catch (error) {
     return toActionFailure(error);
@@ -58,6 +60,7 @@ export async function updateCurriculumUnitAction(
   try {
     await updateCurriculumUnit(id, parsed.data, actor.id);
     if (programmeId) revalidatePath(`/admin/programmes/${programmeId}/units`);
+    revalidateTag(CURRICULUM_UNITS_TAG, 'max');
     return actionSuccess(undefined, 'Curriculum unit updated.');
   } catch (error) {
     return toActionFailure(error);
@@ -79,6 +82,7 @@ export async function setCurriculumUnitStatusAction(
   try {
     await setCurriculumUnitStatus(id, parsed.data, actor.id);
     if (programmeId) revalidatePath(`/admin/programmes/${programmeId}/units`);
+    revalidateTag(CURRICULUM_UNITS_TAG, 'max');
     return actionSuccess(undefined, 'Curriculum unit status updated.');
   } catch (error) {
     return toActionFailure(error);

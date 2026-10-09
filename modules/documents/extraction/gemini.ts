@@ -26,6 +26,16 @@ export interface GeminiExtractionResponse {
   model: string;
 }
 
+const MAX_ATTEMPTS = 5;
+const BASE_DELAY_MS = 1500;
+
+/**
+ * Transient upstream conditions (model overload / rate limits) that are worth
+ * retrying. The Gemini API reports these as HTTP 503 UNAVAILABLE, 429
+ * RESOURCE_EXHAUSTED, or 500/502/504.
+ */
+const RETRYABLE = /UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand|code":(?:429|500|502|503|504)\b/i;
+
 /**
  * Send a PDF plus an instruction prompt to Gemini and return the raw text.
  * The caller is responsible for JSON parsing and schema validation.
@@ -38,38 +48,48 @@ export async function runGeminiExtraction(
   const model = getGeminiModel();
   const ai = getClient();
 
-  let response;
-  try {
-    response = await ai.models.generateContent({
-      model,
-      contents: [
+  const contents = [
+    {
+      role: 'user' as const,
+      parts: [
         {
-          role: 'user',
-          parts: [
-            {
-              inlineData: {
-                mimeType: 'application/pdf',
-                data: pdf.toString('base64'),
-              },
-            },
-            { text: prompt },
-          ],
+          inlineData: {
+            mimeType: 'application/pdf',
+            data: pdf.toString('base64'),
+          },
         },
+        { text: prompt },
       ],
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        temperature: 0,
-      },
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Gemini extraction request failed: ${detail}`);
+    },
+  ];
+
+  let lastDetail = '';
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents,
+        config: {
+          systemInstruction,
+          responseMimeType: 'application/json',
+          temperature: 0,
+        },
+      });
+
+      const raw = response.text;
+      if (!raw) {
+        throw new Error('Gemini returned an empty response.');
+      }
+      return { raw, model };
+    } catch (error) {
+      lastDetail = error instanceof Error ? error.message : String(error);
+      if (attempt >= MAX_ATTEMPTS || !RETRYABLE.test(lastDetail)) {
+        throw new Error(`Gemini extraction request failed: ${lastDetail}`);
+      }
+      const delay = BASE_DELAY_MS * attempt + Math.floor(Math.random() * 500);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
 
-  const raw = response.text;
-  if (!raw) {
-    throw new Error('Gemini returned an empty response.');
-  }
-  return { raw, model };
+  throw new Error(`Gemini extraction request failed: ${lastDetail}`);
 }

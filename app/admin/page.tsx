@@ -5,8 +5,10 @@ import { PageHeader } from '@/components/admin/page-parts';
 import { Building2, Layers, BookOpen, Users, Link2 } from 'lucide-react';
 
 export default async function AdminLandingPage() {
+  // One batched round-trip instead of five awaited queries. With a small
+  // serverless connection pool this avoids five serialized round-trips.
   const [institution, departmentCount, programmeCount, userCount, activeAssignments] =
-    await Promise.all([
+    await prisma.$transaction([
       prisma.institution.findFirst({ orderBy: { createdAt: 'asc' } }),
       prisma.department.count(),
       prisma.programme.count(),

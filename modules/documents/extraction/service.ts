@@ -19,9 +19,14 @@ import {
  * Extraction orchestration.
  *
  * Flow: source PDF (object storage) → Gemini → raw response (persisted
- * verbatim) → JSON parse → schema validation → EXTRACTION_DRAFT version with
- * sections, items, rules and warnings. Nothing is ever auto-published: the
- * draft always requires human review and validation.
+ * verbatim) → JSON parse → schema validation → DRAFT version with sections,
+ * items, rules and warnings. Nothing is ever auto-published: the draft always
+ * requires human review and validation.
+ *
+ * Each uploaded PDF owns exactly one template (keyed by `sourceDocumentId`), so
+ * uploading a second PDF produces a second independent template rather than a
+ * new version. Re-extracting the *same* document adds a new numbered draft to
+ * that document's existing template.
  */
 
 function parseJsonResponse(raw: string): unknown {
@@ -36,6 +41,13 @@ function parseJsonResponse(raw: string): unknown {
 function normalize(value: string | null | undefined): string {
   return (value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
+
+type ExtractableDocument = {
+  id: string;
+  storageKey: string;
+  programmeId: string;
+  programme: { id: string; name: string };
+};
 
 /**
  * Conservative, configuration-driven auto-mapping: a section is linked to a
@@ -61,7 +73,15 @@ function matchUnits(
     .map((unit) => unit.id);
 }
 
-export async function runExtraction(documentId: string, actorId: string) {
+/**
+ * Fast, synchronous half of extraction: resolves the document, records the
+ * PROCESSING run and flips the document status. Returns immediately so the
+ * caller can schedule the slow Gemini work with `after()`.
+ */
+export async function beginExtraction(
+  documentId: string,
+  actorId: string
+): Promise<{ document: ExtractableDocument; runId: string }> {
   const document = await prisma.sourceDocument.findUnique({
     where: { id: documentId },
     include: { programme: { select: { id: true, name: true } } },
@@ -92,6 +112,18 @@ export async function runExtraction(documentId: string, actorId: string) {
     data: { status: 'PROCESSING' },
   });
 
+  return { document, runId: run.id };
+}
+
+/**
+ * Heavy half of extraction: object storage → Gemini → validation → DRAFT
+ * version. Safe to run detached (via `after`) after the HTTP response.
+ */
+export async function performExtraction(
+  document: ExtractableDocument,
+  runId: string,
+  actorId: string
+) {
   try {
     const file = await storage.getObject(document.storageKey);
     if (!file) {
@@ -130,11 +162,11 @@ export async function runExtraction(documentId: string, actorId: string) {
 
     const warnings = collectExtractionWarnings(result);
 
-    const template = await findOrCreateTemplate(document.programmeId, result.template.title);
+    const template = await findOrCreateTemplateForDocument(document, result.template.title);
     const version = await persistDraftVersion({
       templateId: template.id,
       sourceDocumentId: document.id,
-      extractionRunId: run.id,
+      extractionRunId: runId,
       programmeId: document.programmeId,
       title: result.template.title,
       result,
@@ -144,7 +176,7 @@ export async function runExtraction(documentId: string, actorId: string) {
     });
 
     await prisma.extractionRun.update({
-      where: { id: run.id },
+      where: { id: runId },
       data: {
         status: 'COMPLETED',
         rawResponse: raw,
@@ -165,17 +197,17 @@ export async function runExtraction(documentId: string, actorId: string) {
       targetId: version.id,
       metadata: {
         sourceDocumentId: document.id,
-        extractionRunId: run.id,
+        extractionRunId: runId,
         sections: result.sections.length,
         warnings: warnings.length,
       },
     });
 
-    return { versionId: version.id, runId: run.id, warnings: warnings.length };
+    return { versionId: version.id, runId, warnings: warnings.length };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await prisma.extractionRun.update({
-      where: { id: run.id },
+      where: { id: runId },
       data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
     });
     await prisma.sourceDocument.update({
@@ -187,20 +219,30 @@ export async function runExtraction(documentId: string, actorId: string) {
       actorId,
       targetType: 'SourceDocument',
       targetId: document.id,
-      metadata: { extractionRunId: run.id, reason: message },
+      metadata: { extractionRunId: runId, reason: message },
     });
     throw error;
   }
 }
 
-async function findOrCreateTemplate(programmeId: string, title: string) {
+export async function runExtraction(documentId: string, actorId: string) {
+  const { document, runId } = await beginExtraction(documentId, actorId);
+  return performExtraction(document, runId, actorId);
+}
+
+async function findOrCreateTemplateForDocument(
+  document: { id: string; programmeId: string },
+  title: string
+) {
+  // One template per uploaded document; re-extraction reuses it so the new
+  // extraction becomes the next numbered version of the same template.
   const existing = await prisma.mentoringTemplate.findFirst({
-    where: { programmeId },
+    where: { sourceDocumentId: document.id },
     orderBy: { createdAt: 'asc' },
   });
   if (existing) return existing;
   return prisma.mentoringTemplate.create({
-    data: { programmeId, title },
+    data: { programmeId: document.programmeId, title, sourceDocumentId: document.id },
   });
 }
 
@@ -232,7 +274,7 @@ async function persistDraftVersion(args: {
       data: {
         templateId: args.templateId,
         versionNumber,
-        status: 'EXTRACTION_DRAFT',
+        status: 'DRAFT',
         sourceDocumentId: args.sourceDocumentId,
         extractionRunId: args.extractionRunId,
         title: args.title,
@@ -280,7 +322,12 @@ async function persistDraftVersion(args: {
       }
     }
 
-    // Pass 2: resolve parent references and create version-level rules.
+    // Pass 2: resolve parent references and collect rules in memory, then flush
+    // with batched writes. This keeps the interactive transaction short instead
+    // of paying one round-trip per section/rule over a remote connection.
+    const pendingRules: Prisma.CompetencyRuleCreateManyInput[] = [];
+    const parentUpdates = new Map<string, string[]>();
+
     for (let i = 0; i < sectionRecords.length; i += 1) {
       const { section } = sectionRecords[i];
       const sectionId = createdIds[i];
@@ -288,32 +335,40 @@ async function persistDraftVersion(args: {
       if (section.parentSectionNumber) {
         const parentId = sectionIdByNumber.get(section.parentSectionNumber);
         if (parentId) {
-          await tx.templateSection.update({
-            where: { id: sectionId },
-            data: { parentSectionId: parentId },
-          });
+          const children = parentUpdates.get(parentId) ?? [];
+          children.push(sectionId);
+          parentUpdates.set(parentId, children);
         }
       }
 
       for (const [ruleIndex, rule] of section.competencyRules.entries()) {
-        await tx.competencyRule.create({
-          data: {
-            versionId: version.id,
-            sectionId,
-            ruleType: rule.ruleType,
-            minimumCorrect: rule.minimumCorrect ?? null,
-            minimumPercentage:
-              rule.minimumPercentage === null || rule.minimumPercentage === undefined
-                ? null
-                : Math.round(rule.minimumPercentage),
-            requiredItemNumbers: (rule.requiredItemNumbers ?? []) as Prisma.InputJsonValue,
-            conditions: (rule.conditions ?? undefined) as Prisma.InputJsonValue | undefined,
-            sourceWording: rule.sourceWording,
-            notes: rule.notes ?? null,
-            displayOrder: ruleIndex,
-          },
+        pendingRules.push({
+          versionId: version.id,
+          sectionId,
+          ruleType: rule.ruleType,
+          minimumCorrect: rule.minimumCorrect ?? null,
+          minimumPercentage:
+            rule.minimumPercentage === null || rule.minimumPercentage === undefined
+              ? null
+              : Math.round(rule.minimumPercentage),
+          requiredItemNumbers: (rule.requiredItemNumbers ?? []) as Prisma.InputJsonValue,
+          conditions: (rule.conditions ?? undefined) as Prisma.InputJsonValue | undefined,
+          sourceWording: rule.sourceWording,
+          notes: rule.notes ?? null,
+          displayOrder: ruleIndex,
         });
       }
+    }
+
+    for (const [parentId, childIds] of parentUpdates) {
+      await tx.templateSection.updateMany({
+        where: { id: { in: childIds } },
+        data: { parentSectionId: parentId },
+      });
+    }
+
+    if (pendingRules.length > 0) {
+      await tx.competencyRule.createMany({ data: pendingRules });
     }
 
     if (args.warnings.length > 0) {
@@ -329,5 +384,5 @@ async function persistDraftVersion(args: {
     }
 
     return version;
-  });
+  }, { maxWait: 20_000, timeout: 120_000 });
 }

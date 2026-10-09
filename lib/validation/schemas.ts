@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+// Entity id references. The seeded development data uses stable non-UUID ids
+// (e.g. `prog_dict_l6`, `inst_001`), so ids are validated as non-empty strings
+// rather than strict UUIDs.
+const idString = (message = 'Select a valid option.') => z.string().trim().min(1, message);
+
 /**
  * Centralised server-side validation schemas (zod v4).
  *
@@ -59,7 +64,7 @@ export const departmentSchema = z.object({
 });
 
 export const programmeSchema = z.object({
-  departmentId: z.uuid('Select a valid department.'),
+  departmentId: idString('Select a valid department.'),
   name: nameField,
   code: codeField,
   level: z.preprocess(emptyToUndefined, z.string().trim().max(40).optional()),
@@ -85,7 +90,7 @@ export const userCreateSchema = z.object({
     emptyToUndefined,
     z.string().trim().max(60).optional()
   ),
-  programmeId: z.preprocess(emptyToUndefined, z.uuid().optional()),
+  programmeId: z.preprocess(emptyToUndefined, idString().optional()),
 
   companyName: z.preprocess(emptyToUndefined, z.string().trim().max(160).optional()),
   jobTitle: z.preprocess(emptyToUndefined, z.string().trim().max(120).optional()),
@@ -94,7 +99,7 @@ export const userCreateSchema = z.object({
 
   designation: z.preprocess(emptyToUndefined, z.string().trim().max(120).optional()),
   officeEmail: optionalEmail,
-  institutionId: z.preprocess(emptyToUndefined, z.uuid().optional()),
+  institutionId: z.preprocess(emptyToUndefined, idString().optional()),
 });
 
 export const userUpdateSchema = userCreateSchema.omit({ password: true, roles: true });
@@ -112,8 +117,8 @@ export const roleAssignmentSchema = z.object({ role: roleEnum });
 // ---------------------------------------------------------------------------
 
 export const assignmentCreateSchema = z.object({
-  mentorId: z.uuid('Select a valid mentor.'),
-  traineeId: z.uuid('Select a valid trainee.'),
+  mentorId: idString('Select a valid mentor.'),
+  traineeId: idString('Select a valid trainee.'),
   notes: optionalText,
   startDate: optionalDate,
 });
@@ -134,7 +139,7 @@ const optionalLongText = z.preprocess(
 );
 
 export const curriculumUnitSchema = z.object({
-  programmeId: z.uuid('Select a valid programme.'),
+  programmeId: idString('Select a valid programme.'),
   name: nameField,
   code: codeField,
   description: optionalLongText,
@@ -148,7 +153,24 @@ export const curriculumUnitUpdateSchema = curriculumUnitSchema.omit({ programmeI
 // ---------------------------------------------------------------------------
 
 export const sourceDocumentUploadSchema = z.object({
-  programmeId: z.uuid('Select a valid programme.'),
+  programmeId: idString('Select a valid programme.'),
+});
+
+// Direct-to-storage upload: the browser requests a signed target, uploads the
+// PDF itself, then finalizes with the resulting key + hash.
+export const sourceDocumentUploadTargetSchema = z.object({
+  programmeId: idString('Select a valid programme.'),
+  fileName: z.string().trim().min(1, 'Select a PDF file to upload.').max(255),
+  mimeType: z.string().trim().max(120).default('application/pdf'),
+  size: z.coerce.number().int().positive('Select a PDF file to upload.'),
+});
+
+export const sourceDocumentFinalizeSchema = sourceDocumentUploadTargetSchema.extend({
+  storageKey: z.string().trim().min(1).max(512),
+  fileHash: z
+    .string()
+    .trim()
+    .regex(/^[a-f0-9]{64}$/i, 'The file fingerprint is invalid.'),
 });
 
 // ---------------------------------------------------------------------------
@@ -205,14 +227,75 @@ export const competencyRuleUpdateSchema = z.object({
 });
 
 export const sectionMappingSchema = z.object({
-  sectionId: z.uuid('Select a valid section.'),
+  sectionId: idString('Select a valid section.'),
   mappingStatus: mappingStatusEnum,
-  unitIds: z.array(z.uuid()).default([]),
+  unitIds: z.array(idString()).default([]),
 });
 
 export const versionValidateSchema = z.object({
-  versionId: z.uuid('Select a valid version.'),
+  versionId: idString('Select a valid version.'),
   notes: optionalLongText,
+});
+
+// ---------------------------------------------------------------------------
+// Sprint 5 — Template lifecycle, structure editing, validation and publishing
+// ---------------------------------------------------------------------------
+
+export const templateVersionStatusEnum = z.enum([
+  'DRAFT',
+  'IN_REVIEW',
+  'READY_FOR_PUBLISH',
+  'PUBLISHED',
+  'ARCHIVED',
+]);
+
+const optionalInt = z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).optional());
+
+export const templateCreateSchema = z.object({
+  programmeId: idString('Select a valid programme.'),
+  title: nameField,
+  description: optionalLongText,
+});
+
+export const templateUpdateSchema = z.object({
+  title: nameField,
+  description: optionalLongText,
+});
+
+export const sectionCreateSchema = sectionUpdateSchema.extend({
+  versionId: idString('Select a valid template version.'),
+  parentSectionId: z.preprocess(emptyToUndefined, idString().optional()),
+  displayOrder: optionalInt,
+});
+
+export const sectionMoveSchema = z.object({
+  sectionId: idString('Select a valid section.'),
+  parentSectionId: z.preprocess(emptyToUndefined, idString().optional()),
+  displayOrder: optionalInt,
+});
+
+export const evaluationItemCreateSchema = evaluationItemUpdateSchema.extend({
+  sectionId: idString('Select a valid section.'),
+  displayOrder: optionalInt,
+});
+
+export const competencyRuleCreateSchema = competencyRuleUpdateSchema.extend({
+  versionId: idString('Select a valid template version.'),
+  sectionId: z.preprocess(emptyToUndefined, idString().optional()),
+  displayOrder: optionalInt,
+});
+
+export const versionTransitionSchema = z.object({
+  versionId: idString('Select a valid version.'),
+  to: templateVersionStatusEnum,
+});
+
+export const versionPublishSchema = z.object({
+  versionId: idString('Select a valid version.'),
+});
+
+export const versionCloneSchema = z.object({
+  sourceVersionId: idString('Select a valid version.'),
 });
 
 export type InstitutionInput = z.infer<typeof institutionSchema>;
@@ -226,8 +309,20 @@ export type AssignmentUpdateInput = z.infer<typeof assignmentUpdateSchema>;
 export type CurriculumUnitInput = z.infer<typeof curriculumUnitSchema>;
 export type CurriculumUnitUpdateInput = z.infer<typeof curriculumUnitUpdateSchema>;
 export type SourceDocumentUploadInput = z.infer<typeof sourceDocumentUploadSchema>;
+export type SourceDocumentUploadTargetInput = z.infer<typeof sourceDocumentUploadTargetSchema>;
+export type SourceDocumentFinalizeInput = z.infer<typeof sourceDocumentFinalizeSchema>;
 export type SectionUpdateInput = z.infer<typeof sectionUpdateSchema>;
 export type EvaluationItemUpdateInput = z.infer<typeof evaluationItemUpdateSchema>;
 export type CompetencyRuleUpdateInput = z.infer<typeof competencyRuleUpdateSchema>;
 export type SectionMappingInput = z.infer<typeof sectionMappingSchema>;
 export type VersionValidateInput = z.infer<typeof versionValidateSchema>;
+
+export type TemplateCreateInput = z.infer<typeof templateCreateSchema>;
+export type TemplateUpdateInput = z.infer<typeof templateUpdateSchema>;
+export type SectionCreateInput = z.infer<typeof sectionCreateSchema>;
+export type SectionMoveInput = z.infer<typeof sectionMoveSchema>;
+export type EvaluationItemCreateInput = z.infer<typeof evaluationItemCreateSchema>;
+export type CompetencyRuleCreateInput = z.infer<typeof competencyRuleCreateSchema>;
+export type VersionTransitionInput = z.infer<typeof versionTransitionSchema>;
+export type VersionPublishInput = z.infer<typeof versionPublishSchema>;
+export type VersionCloneInput = z.infer<typeof versionCloneSchema>;

@@ -213,11 +213,11 @@ function runTestSuite() {
   );
   assert(
     !curriculumUnitSchema.safeParse({
-      programmeId: 'not-a-uuid',
+      programmeId: '',
       name: 'Bad',
       code: 'CU-99',
     }).success,
-    'A non-UUID programme id is rejected'
+    'A blank programme id is rejected'
   );
 
   // ---------------------------------------------------------------------------

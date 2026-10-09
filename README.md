@@ -93,16 +93,33 @@ npm run test:admin        # Sprint 3 administrative validation/error-mapping sui
 npm test                  # all of the above
 ```
 
-### 7. Database (Supabase PostgreSQL + Prisma)
+### 7. Database (PostgreSQL + Prisma)
+
+**Local Postgres via Docker (recommended for development):**
 
 ```bash
-npm run db:seed                              # seed institution, departments, programmes, users
-npx prisma migrate dev --name <migration>    # create/apply a migration (requires DIRECT_URL)
+npm run db:local:up        # start Postgres 16 on localhost:5432
+npm run db:migrate         # prisma migrate dev — apply migrations
+npm run db:seed            # seed institution, departments, programmes, users
+npm run db:local:down      # stop the container (add -v to wipe data)
+```
+
+For local Postgres, set both `DATABASE_URL` and `DIRECT_URL` to
+`postgresql://skilltrack:skilltrack@localhost:5432/skilltrack`. See `.env.example`
+for the full Option A / Option B (hosted Supabase) guidance.
+
+**Hosted Supabase:**
+
+```bash
+npm run db:seed                # seed institution, departments, programmes, users
+npm run db:migrate             # prisma migrate dev (requires DIRECT_URL)
+npm run db:migrate:deploy      # apply committed migrations (CI/production)
 ```
 
 > **Supabase pooler note:** the pooled connection string must use
 > `postgres.<project-ref>` as the username (not just `postgres`), otherwise the
-> pooler returns `(ENOIDENTIFIER) no tenant identifier provided`. See `.env.example`.
+> pooler returns `(ENOIDENTIFIER) no tenant identifier provided`. On Vercel use the
+> transaction pooler on port `6543` with `connection_limit=1`. See `.env.example`.
 
 ### 8. Production Build (typecheck enforced)
 

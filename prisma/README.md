@@ -25,12 +25,24 @@ Data models, datasource configuration and migration history for SkillTrack.
 - `ExtractionRun` — append-only record of every Gemini extraction attempt
   (`rawResponse`, `structuredOutput`, `status`, `model`, `promptVersion`).
 - `MentoringTemplate` → `MentoringTemplateVersion` — versioned template
-  definitions (`EXTRACTION_DRAFT | VALIDATED | PUBLISHED | ARCHIVED`).
+  definitions (`DRAFT | IN_REVIEW | READY_FOR_PUBLISH | PUBLISHED | ARCHIVED`).
 - `TemplateSection` (self-referencing hierarchy), `EvaluationItem`,
   `CompetencyRule`, `TemplateSectionCurriculumUnit` (mapping),
   `TemplateVersionWarning`.
 - Enums: `SourceDocumentStatus`, `ExtractionRunStatus`, `TemplateVersionStatus`,
   `EvaluationCategory`, `MappingStatus`, `CompetencyRuleType`.
+
+### Sprint 5 — Template engine, validation & publishing
+
+- `TemplateVersionStatus` renamed to `DRAFT | IN_REVIEW | READY_FOR_PUBLISH |
+  PUBLISHED | ARCHIVED` (migration renames enum values in place — no data loss).
+- `MentoringTemplateVersion` extended with `basedOnVersionId`, `revision`,
+  `validatedById/At`, `publishedById/At`, `archivedAt`.
+- `TemplateValidationRun` + `TemplateValidationIssue` — immutable, field-level
+  validation records (ruleset version, revision, severity, entity references).
+- `MentoringTemplate.sourceDocumentId` — one template per uploaded PDF.
+- Enums: `ValidationRunStatus` (`PASSED | FAILED`), `ValidationIssueSeverity`
+  (`ERROR | WARNING | INFO`).
 
 ## Migration history
 
@@ -39,6 +51,7 @@ Data models, datasource configuration and migration history for SkillTrack.
 | `0001_init_auth` | 1–2 |
 | `0002_sprint3_institution_user_management` | 3 |
 | `0003_sprint4_curriculum_documents_templates` | 4 |
+| `0004_sprint5_template_engine` | 5 |
 
 ## Files
 

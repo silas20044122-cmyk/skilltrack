@@ -13,6 +13,9 @@ import { getSourceDocument } from '@/modules/documents/service';
 import { ExtractionButton } from '../extraction-button';
 import { deleteSourceDocumentAction } from '../actions';
 
+export const maxDuration = 300;
+
+
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -28,7 +31,9 @@ export default async function DocumentDetailPage({
   const document = await getSourceDocument(id);
   if (!document) notFound();
 
-  const hasValidated = document.templateVersions.some((v) => v.status !== 'EXTRACTION_DRAFT');
+  const hasLockedVersion = document.templateVersions.some(
+    (v) => v.status === 'READY_FOR_PUBLISH' || v.status === 'PUBLISHED'
+  );
 
   return (
     <div className="space-y-6">
@@ -88,6 +93,7 @@ export default async function DocumentDetailPage({
             </Button>
             <ExtractionButton
               documentId={document.id}
+              status={document.status}
               label={document.extractionRuns.length > 0 ? 'Run extraction again' : 'Run extraction'}
             />
           </div>
@@ -173,7 +179,9 @@ export default async function DocumentDetailPage({
                       <Link href={`/admin/documents/${document.id}/review?version=${version.id}`} />
                     }
                   >
-                    {version.status === 'EXTRACTION_DRAFT' ? 'Review' : 'Open'}
+                    {version.status === 'DRAFT' || version.status === 'IN_REVIEW'
+                      ? 'Review'
+                      : 'Open'}
                   </Button>
                 </td>
               </tr>
@@ -182,7 +190,7 @@ export default async function DocumentDetailPage({
         )}
       </section>
 
-      {!hasValidated ? (
+      {!hasLockedVersion ? (
         <div className="flex justify-end">
           <ConfirmSubmit
             action={deleteSourceDocumentAction}

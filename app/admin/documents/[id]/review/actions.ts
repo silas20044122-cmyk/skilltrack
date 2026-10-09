@@ -13,11 +13,11 @@ import {
   versionValidateSchema,
 } from '@/lib/validation/schemas';
 import {
+  markReadyForPublish,
   setSectionMapping,
   updateCompetencyRule,
   updateEvaluationItem,
   updateSection,
-  validateTemplateVersion,
 } from '@/modules/templates/service';
 
 function revalidateReview(documentId: string) {
@@ -155,10 +155,10 @@ export async function validateVersionAction(
   if (!parsed.ok) return parsed.failure;
 
   try {
-    await validateTemplateVersion(parsed.data, actor.id);
+    await markReadyForPublish(parsed.data, actor.id);
     if (documentId) revalidateReview(documentId);
     revalidatePath('/admin/documents');
-    return actionSuccess(undefined, 'Template version validated.');
+    return actionSuccess(undefined, 'Template version marked ready for publication.');
   } catch (error) {
     return toActionFailure(error);
   }

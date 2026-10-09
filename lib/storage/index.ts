@@ -7,4 +7,6 @@ import { supabaseStorage } from './supabase-driver';
  */
 export const storage: ObjectStorage = supabaseStorage;
 
-export type { ObjectStorage, StoredObject } from './types';
+export { getStorageBucketName } from './supabase-driver';
+
+export type { ObjectStorage, StoredObject, UploadTarget, ObjectInfo } from './types';

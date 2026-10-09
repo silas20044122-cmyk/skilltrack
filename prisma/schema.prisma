@@ -59,12 +59,32 @@ enum ExtractionRunStatus {
   FAILED
 }
 
-// Lifecycle of a mentoring template version. Publishing happens in Sprint 5.
+// Lifecycle of a mentoring template version (Sprint 5).
+//
+//   DRAFT -> IN_REVIEW -> READY_FOR_PUBLISH -> PUBLISHED -> ARCHIVED
+//
+// A version may be returned from IN_REVIEW / READY_FOR_PUBLISH to an earlier
+// editing state when corrections are required. Transitions are enforced in the
+// service layer; invalid transitions are rejected.
 enum TemplateVersionStatus {
-  EXTRACTION_DRAFT
-  VALIDATED
+  DRAFT
+  IN_REVIEW
+  READY_FOR_PUBLISH
   PUBLISHED
   ARCHIVED
+}
+
+// Result of a persisted validation run (explicit validate or publish attempt).
+enum ValidationRunStatus {
+  PASSED
+  FAILED
+}
+
+// Severity of a single structured validation issue.
+enum ValidationIssueSeverity {
+  ERROR
+  WARNING
+  INFO
 }
 
 // Category of a single evaluation item. Extensible: OTHER covers documents that
@@ -193,6 +213,10 @@ model User {
   // Sprint 4 — document intelligence
   sourceDocumentsUploaded   SourceDocument[]           @relation("SourceDocumentsUploaded")
   templateVersionsValidated MentoringTemplateVersion[] @relation("TemplateVersionsValidated")
+
+  // Sprint 5 — template publishing & validation
+  templateVersionsPublished MentoringTemplateVersion[] @relation("TemplateVersionsPublished")
+  templateValidationRuns    TemplateValidationRun[]    @relation("TemplateValidationRuns")
 
   @@map("users")
 }
@@ -352,6 +376,7 @@ model SourceDocument {
   uploadedBy       User?                      @relation("SourceDocumentsUploaded", fields: [uploadedById], references: [id], onDelete: SetNull)
   extractionRuns   ExtractionRun[]
   templateVersions MentoringTemplateVersion[]
+  originTemplates  MentoringTemplate[]        @relation("TemplateOriginDocument")
 
   @@index([programmeId])
   @@index([status])
@@ -397,17 +422,21 @@ model ExtractionRun {
 // ---------------------------------------------------------------------------
 
 model MentoringTemplate {
-  id          String   @id @default(uuid())
-  programmeId String
-  title       String
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(uuid())
+  programmeId      String
+  sourceDocumentId String?
+  title            String
+  description      String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  programme Programme                  @relation(fields: [programmeId], references: [id], onDelete: Cascade)
-  versions  MentoringTemplateVersion[]
+  programme      Programme                  @relation(fields: [programmeId], references: [id], onDelete: Restrict)
+  sourceDocument SourceDocument?            @relation("TemplateOriginDocument", fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  versions       MentoringTemplateVersion[]
 
   @@index([programmeId])
+  @@index([sourceDocumentId])
   @@map("mentoring_templates")
 }
 
@@ -415,28 +444,78 @@ model MentoringTemplateVersion {
   id               String                @id @default(uuid())
   templateId       String
   versionNumber    Int
-  status           TemplateVersionStatus @default(EXTRACTION_DRAFT)
+  status           TemplateVersionStatus @default(DRAFT)
   sourceDocumentId String?
   extractionRunId  String?
+  basedOnVersionId String?
   title            String?
   notes            String?
+  revision         Int                   @default(1)
   validatedById    String?
   validatedAt      DateTime?
+  publishedById    String?
+  publishedAt      DateTime?
+  archivedAt       DateTime?
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
 
-  template        MentoringTemplate        @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  sourceDocument  SourceDocument?          @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
-  extractionRun   ExtractionRun?           @relation(fields: [extractionRunId], references: [id], onDelete: SetNull)
-  validatedBy     User?                    @relation("TemplateVersionsValidated", fields: [validatedById], references: [id], onDelete: SetNull)
+  template        MentoringTemplate          @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  sourceDocument  SourceDocument?            @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  extractionRun   ExtractionRun?             @relation(fields: [extractionRunId], references: [id], onDelete: SetNull)
+  basedOnVersion  MentoringTemplateVersion?  @relation("TemplateVersionLineage", fields: [basedOnVersionId], references: [id], onDelete: SetNull)
+  derivedVersions MentoringTemplateVersion[] @relation("TemplateVersionLineage")
+  validatedBy     User?                      @relation("TemplateVersionsValidated", fields: [validatedById], references: [id], onDelete: SetNull)
+  publishedBy     User?                      @relation("TemplateVersionsPublished", fields: [publishedById], references: [id], onDelete: SetNull)
   sections        TemplateSection[]
   competencyRules CompetencyRule[]
   warnings        TemplateVersionWarning[]
+  validationRuns  TemplateValidationRun[]
 
   @@unique([templateId, versionNumber])
   @@index([templateId])
   @@index([status])
   @@map("mentoring_template_versions")
+}
+
+// Persisted, immutable record of a validation decision. A run is written when
+// an administrator explicitly marks a draft ready for publication, and again on
+// every publish attempt (pass or fail). `revision` captures the exact draft
+// revision that was validated.
+model TemplateValidationRun {
+  id             String              @id @default(uuid())
+  versionId      String
+  revision       Int
+  rulesetVersion String
+  status         ValidationRunStatus
+  errorCount     Int                 @default(0)
+  warningCount   Int                 @default(0)
+  validatedById  String?
+  createdAt      DateTime            @default(now())
+
+  version     MentoringTemplateVersion  @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  validatedBy User?                     @relation("TemplateValidationRuns", fields: [validatedById], references: [id], onDelete: SetNull)
+  issues      TemplateValidationIssue[]
+
+  @@index([versionId])
+  @@index([status])
+  @@map("template_validation_runs")
+}
+
+model TemplateValidationIssue {
+  id              String                  @id @default(uuid())
+  validationRunId String
+  severity        ValidationIssueSeverity
+  code            String
+  message         String
+  entityType      String?
+  entityId        String?
+  field           String?
+  createdAt       DateTime                @default(now())
+
+  validationRun TemplateValidationRun @relation(fields: [validationRunId], references: [id], onDelete: Cascade)
+
+  @@index([validationRunId])
+  @@map("template_validation_issues")
 }
 
 model TemplateSection {

@@ -15,6 +15,7 @@ import {
   Users,
   Link2,
   FileText,
+  ClipboardList,
   LogOut,
 } from 'lucide-react';
 import type { SessionUser } from '@/types/auth';
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { href: '/admin/departments', label: 'Departments', icon: Layers },
   { href: '/admin/programmes', label: 'Programmes', icon: BookOpen },
   { href: '/admin/documents', label: 'Documents', icon: FileText },
+  { href: '/admin/templates', label: 'Templates', icon: ClipboardList },
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/assignments', label: 'Assignments', icon: Link2 },
 ];
@@ -109,7 +111,7 @@ export function AdminShell({
       <footer className="border-t border-border py-4">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 text-xs text-muted-foreground sm:px-6">
           <span>SkillTrack TVET Institution Administration</span>
-          <span>Sprint 4</span>
+          <span>Sprint 5</span>
         </div>
       </footer>
     </div>

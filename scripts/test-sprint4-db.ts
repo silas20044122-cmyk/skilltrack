@@ -23,9 +23,9 @@ import {
 import { runExtraction } from '../modules/documents/extraction/service';
 import {
   getTemplateVersion,
+  markReadyForPublish,
   setSectionMapping,
   updateSection,
-  validateTemplateVersion,
 } from '../modules/templates/service';
 
 let passedTests = 0;
@@ -144,7 +144,7 @@ async function runTestSuite() {
         versions: {
           create: {
             versionNumber: 1,
-            status: 'EXTRACTION_DRAFT',
+            status: 'DRAFT',
             title: `Test Template ${RUN}`,
           },
         },
@@ -189,8 +189,11 @@ async function runTestSuite() {
       'setSectionMapping links a curriculum unit'
     );
 
-    const validated = await validateTemplateVersion({ versionId: version.id }, admin.id);
-    assert(validated.status === 'VALIDATED', 'validateTemplateVersion marks the version VALIDATED');
+    const validated = await markReadyForPublish({ versionId: version.id }, admin.id);
+    assert(
+      validated.status === 'READY_FOR_PUBLISH',
+      'markReadyForPublish marks the version READY_FOR_PUBLISH'
+    );
 
     let immutable = false;
     try {

@@ -1,7 +1,7 @@
 # Domain Module: Documents
 
 Handles uploaded mentoring-tool PDFs and the Gemini extraction pipeline that
-turns a document into a reviewable `EXTRACTION_DRAFT` template version.
+turns a document into a reviewable `DRAFT` template version.
 
 ## Storage
 
@@ -19,8 +19,12 @@ through the authorization-checked route
   department, section count or competency formula is hard-coded.
 - `gemini.ts` — a thin Gemini SDK wrapper. The model comes from `GEMINI_MODEL`.
 - `service.ts` — orchestration: fetch PDF → Gemini → persist raw response →
-  JSON parse → schema validation (`lib/validation/extraction.ts`) → persist an
-  `EXTRACTION_DRAFT` version with sections, items, rules and warnings.
+  JSON parse → schema validation (`lib/validation/extraction.ts`) → persist a
+  `DRAFT` version with sections, items, rules and warnings.
+
+Each uploaded PDF owns exactly one template (`MentoringTemplate.sourceDocumentId`);
+re-extracting the same document adds the next numbered draft to that template,
+while a different PDF produces a separate template.
 
 Every attempt is recorded as an append-only `ExtractionRun` (raw response and
 structured output kept), so any template value can be traced back to its source.

@@ -12,10 +12,14 @@ import type { ObjectStorage, StoredObject } from './types';
 let client: SupabaseClient | null = null;
 let bucketReady: Promise<void> | null = null;
 
+export function getStorageBucketName(): string {
+  return process.env.SUPABASE_STORAGE_BUCKET?.trim() || 'mentoring-documents';
+}
+
 function getConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const bucket = process.env.SUPABASE_STORAGE_BUCKET?.trim() || 'mentoring-documents';
+  const bucket = getStorageBucketName();
 
   if (!url || !serviceRoleKey) {
     throw new Error(
@@ -66,17 +70,56 @@ export const supabaseStorage: ObjectStorage = {
   async getObject(key): Promise<StoredObject | null> {
     await ensureBucket();
     const { bucket } = getConfig();
-    const { data, error } = await getClient().storage.from(bucket).download(key);
-    if (error || !data) return null;
-    return {
-      data: Buffer.from(await data.arrayBuffer()),
-      contentType: data.type || 'application/octet-stream',
-    };
+    const storage = getClient().storage.from(bucket);
+
+    let lastError = '';
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const { data, error } = await storage.download(key);
+      if (!error && data) {
+        return {
+          data: Buffer.from(await data.arrayBuffer()),
+          contentType: data.type || 'application/octet-stream',
+        };
+      }
+      lastError = error?.message ?? 'empty response';
+      // A genuinely missing object is not worth retrying.
+      if (/not found|does not exist/i.test(lastError)) return null;
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+    throw new Error(`Storage download failed for "${key}": ${lastError}`);
   },
 
   async deleteObject(key) {
     await ensureBucket();
     const { bucket } = getConfig();
     await getClient().storage.from(bucket).remove([key]);
+  },
+
+  async createUploadTarget(key) {
+    await ensureBucket();
+    const { bucket } = getConfig();
+    const { data, error } = await getClient().storage.from(bucket).createSignedUploadUrl(key);
+    if (error || !data) {
+      throw new Error(`Unable to create upload target for "${key}": ${error?.message ?? 'unknown error'}`);
+    }
+    return { path: data.path, token: data.token };
+  },
+
+  async getObjectInfo(key) {
+    await ensureBucket();
+    const { bucket } = getConfig();
+    const storage = getClient().storage.from(bucket);
+    const slash = key.lastIndexOf('/');
+    const dir = slash === -1 ? '' : key.slice(0, slash);
+    const name = slash === -1 ? key : key.slice(slash + 1);
+    const { data, error } = await storage.list(dir, { search: name, limit: 1 });
+    if (error) throw new Error(`Storage lookup failed for "${key}": ${error.message}`);
+    const match = data?.find((entry) => entry.name === name);
+    if (!match) return null;
+    const meta = (match.metadata ?? null) as { size?: number; mimetype?: string } | null;
+    return {
+      size: typeof meta?.size === 'number' ? meta.size : 0,
+      contentType: meta?.mimetype ?? 'application/pdf',
+    };
   },
 };

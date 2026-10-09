@@ -1,3 +1,4 @@
+import { unstable_cache } from 'next/cache';
 import { prisma } from '@/lib/db/prisma';
 import { AppError } from '@/lib/errors';
 import { logAuditEvent } from '@/lib/audit/log-audit-event';
@@ -5,6 +6,8 @@ import type {
   CurriculumUnitInput,
   CurriculumUnitUpdateInput,
 } from '@/lib/validation/schemas';
+
+export const CURRICULUM_UNITS_TAG = 'curriculum-units';
 
 /**
  * Curriculum unit domain services.
@@ -22,13 +25,22 @@ export async function listCurriculumUnits(programmeId: string) {
   });
 }
 
-export async function listCurriculumUnitOptions(programmeId: string) {
-  return prisma.curriculumUnit.findMany({
-    where: { programmeId, status: 'ACTIVE' },
-    orderBy: [{ position: 'asc' }, { name: 'asc' }],
-    select: { id: true, code: true, name: true, position: true },
-  });
-}
+/**
+ * Compact active-unit options, read on every review/editor screen. Cached with
+ * the `curriculum-units` tag (invalidated by the unit actions) so the hot path
+ * doesn't pay a database round-trip on each navigation.
+ */
+export const listCurriculumUnitOptions = unstable_cache(
+  async (programmeId: string) => {
+    return prisma.curriculumUnit.findMany({
+      where: { programmeId, status: 'ACTIVE' },
+      orderBy: [{ position: 'asc' }, { name: 'asc' }],
+      select: { id: true, code: true, name: true, position: true },
+    });
+  },
+  ['curriculum-unit-options'],
+  { tags: [CURRICULUM_UNITS_TAG], revalidate: 300 }
+);
 
 export async function getCurriculumUnit(id: string) {
   return prisma.curriculumUnit.findUnique({

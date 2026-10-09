@@ -181,8 +181,8 @@ async function runTestSuite() {
   });
   assert(asgBlank.success && asgBlank.data.startDate === undefined, 'Blank start date is undefined');
   assert(
-    !assignmentCreateSchema.safeParse({ mentorId: 'nope', traineeId: VALID_UUID }).success,
-    'Non-uuid mentor id is rejected'
+    !assignmentCreateSchema.safeParse({ mentorId: '', traineeId: VALID_UUID }).success,
+    'Blank mentor id is rejected'
   );
   assert(
     assignmentStatusEnum.safeParse('ENDED').success && !assignmentStatusEnum.safeParse('DELETED').success,

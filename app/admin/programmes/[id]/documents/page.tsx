@@ -13,6 +13,9 @@ import { listSourceDocuments } from '@/modules/documents/service';
 import { ExtractionButton } from '@/app/admin/documents/extraction-button';
 import { DocumentUploadForm } from './document-upload-form';
 
+export const maxDuration = 300;
+
+
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -104,6 +107,7 @@ export default async function ProgrammeDocumentsPage({
                 <div className="flex items-center justify-end gap-2">
                   <ExtractionButton
                     documentId={document.id}
+                    status={document.status}
                     label={document._count.extractionRuns > 0 ? 'Re-extract' : 'Extract'}
                   />
                   <Button
